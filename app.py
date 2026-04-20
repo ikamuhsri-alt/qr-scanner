@@ -1,91 +1,67 @@
 import streamlit as st
-from pyzbar.pyzbar import decode
+import cv2
+import numpy as np
 import pandas as pd
 from datetime import datetime
 from PIL import Image
-from reportlab.pdfgen import canvas
 import re
+import base64
 
-# ====== CONFIG ======
+# ===== CONFIG =====
 st.set_page_config(page_title="QR Scanner Modern", layout="wide")
 
-import base64
-
+# ===== SIDEBAR =====
 def get_base64(file):
     with open(file, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 img = get_base64("bg_sidebar.png")
 
-st.sidebar.image("logo.png", width=120)
+st.sidebar.image("logo.png", width=100)
 st.sidebar.markdown("## 📌 Sistem Scanner QR")
-
-# ====== BACKGROUND SIDEBAR ======
-import base64
-
-def get_base64(file):
-    with open(file, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-img = get_base64("bg_sidebar.png")
 
 st.markdown(f"""
 <style>
-
-/* ===== SIDEBAR BACKGROUND ===== */
 section[data-testid="stSidebar"] {{
     background: linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)),
                 url("data:image/png;base64,{img}");
     background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
 }}
-
-/* ===== TEXT SIDEBAR ===== */
 section[data-testid="stSidebar"] * {{
     color: white !important;
 }}
-
 </style>
 """, unsafe_allow_html=True)
-# ====== DATA ======
+
+# ===== DATA =====
 try:
     df = pd.read_csv("data.csv")
 except:
     df = pd.DataFrame(columns=[
-        "Nama", "NIM", "Prodi", "Pelayanan",
-        "Petugas", "Status", "Waktu"
+        "Nama","NIM","Prodi","Pelayanan","Petugas","Status","Waktu"
     ])
 
-# ====== FUNCTION ======
-
-# 🔥 BERSIHKAN LABEL
+# ===== FUNCTION =====
 def clean_text(text):
-    text = text.split(":", 1)[-1]  # buang "Nama:"
+    text = text.split(":", 1)[-1]
     return re.sub(r"[^a-zA-Z0-9\s]", "", text).strip()
 
 def process_qr_data(data):
     try:
-        parts = data.split("|")
-        nama = clean_text(parts[0])
-        nim = clean_text(parts[1])
-        prodi = clean_text(parts[2])
-        pelayanan = clean_text(parts[3])
-        return nama, nim, prodi, pelayanan
+        p = data.split("|")
+        return clean_text(p[0]), clean_text(p[1]), clean_text(p[2]), clean_text(p[3])
     except:
         return None
 
 def is_duplicate_today(nim, pelayanan):
     if df.empty:
         return False
-
     df["Waktu"] = pd.to_datetime(df["Waktu"])
     today = datetime.now().date()
-
     return any(
-        (df["NIM"].astype(str) == str(nim)) &
-        (df["Pelayanan"].astype(str) == str(pelayanan)) &
-        (df["Waktu"].dt.date == today)
+        (df["NIM"].astype(str)==str(nim)) &
+        (df["Pelayanan"].astype(str)==str(pelayanan)) &
+        (df["Waktu"].dt.date==today)
     )
 
 def save_data(row):
@@ -96,398 +72,128 @@ def save_data(row):
 def generate_pdf(filtered_df, bulan):
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet
 
     doc = SimpleDocTemplate("laporan.pdf")
+    styles = getSampleStyleSheet()
     elements = []
 
-    styles = getSampleStyleSheet()
-
-    # 🔥 JUDUL
-    title = Paragraph(f"LAPORAN PENGAMBILAN BERKAS BULAN {bulan}", styles["Title"])
-    elements.append(title)
-
-    # SPASI
+    elements.append(Paragraph(f"LAPORAN BULAN {bulan}", styles["Title"]))
     elements.append(Paragraph("<br/><br/>", styles["Normal"]))
 
-    # 🔥 DATA TABLE
-    data = [["Nama", "NIM", "Prodi", "Pelayanan", "Petugas", "Status", "Waktu"]]
-
-    for _, row in filtered_df.iterrows():
-        data.append([
-            row["Nama"],
-            row["NIM"],
-            row["Prodi"],
-            row["Pelayanan"],
-            row["Petugas"],
-            row["Status"],
-            str(row["Waktu"])
-        ])
+    data = [["Nama","NIM","Prodi","Pelayanan","Petugas","Status","Waktu"]]
+    for _,r in filtered_df.iterrows():
+        data.append(list(r.astype(str)))
 
     table = Table(data, repeatRows=1)
-
     table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.grey),
-        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-        ("GRID", (0,0), (-1,-1), 1, colors.black),
-        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("BACKGROUND",(0,0),(-1,0),colors.grey),
+        ("TEXTCOLOR",(0,0),(-1,0),colors.white),
+        ("GRID",(0,0),(-1,-1),1,colors.black),
+        ("FONTSIZE",(0,0),(-1,-1),8)
     ]))
 
     elements.append(table)
-
     doc.build(elements)
 
-# ====== UI ======
-st.title("DATA SCAN PELAYANAN")
+# ===== UI =====
+st.title("📷 DATA SCAN PELAYANAN")
 
 menu = st.sidebar.selectbox("Menu", [
     "Scanner Camera",
     "Upload QR",
     "Dashboard",
     "Data",
-    "View Cetak",
     "Cetak PDF"
 ])
 
-# ====== SCANNER CAMERA ======
+# ===== SCANNER ONLINE =====
 if menu == "Scanner Camera":
-    st.subheader("Scan via Camera")
+    st.subheader("📷 Scan QR (Online)")
 
-    run = st.checkbox("Aktifkan Kamera")
-    FRAME_WINDOW = st.image([])
+    img_file = st.camera_input("Ambil foto QR")
 
-    cap = cv2.VideoCapture(0)
+    if img_file:
+        bytes_data = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
+        img = cv2.imdecode(bytes_data, 1)
 
-    # 🔥 SETTING KAMERA BIAR LEBIH TERANG & TAJAM
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-    cap.set(cv2.CAP_PROP_BRIGHTNESS, 150)
+        detector = cv2.QRCodeDetector()
+        data, bbox, _ = detector.detectAndDecode(img)
 
-    scanned = set()
-
-    while run:
-        ret, frame = cap.read()
-        if not ret:
-            st.error("Camera tidak terdeteksi")
-            break
-
-        # 🔥 ZOOM BIAR QR KECIL TERBACA
-        frame = cv2.resize(frame, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
-
-        # ====== PREPROCESSING ANTI BACKLIGHT ======
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # Auto contrast (biar terang walau silau)
-        gray = cv2.equalizeHist(gray)
-
-        # Blur untuk noise
-        blur = cv2.GaussianBlur(gray, (5,5), 0)
-
-        # Adaptive threshold (penting banget buat backlight)
-        thresh = cv2.adaptiveThreshold(
-            blur, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            11, 2
-        )
-
-        # 🔥 MULTI-DECODE (SUPER SENSITIF)
-        decoded = decode(frame) + decode(gray) + decode(thresh)
-
-        for obj in decoded:
-            data = obj.data.decode("utf-8")
+        if data:
             result = process_qr_data(data)
 
             if result:
                 nama, nim, prodi, pelayanan = result
 
-                # 🔥 ANTI DOBEL SUPER KETAT
-                if nim not in scanned and not is_duplicate_today(nim, pelayanan):
+                st.markdown(f"<h2 style='text-align:center;color:#00ff99'>✔ {nama}</h2>", unsafe_allow_html=True)
 
-                    scanned.add(nim)  # simpan dulu biar ga double
+                petugas = st.selectbox("Petugas", ["Ikinta Winanto","Gatot Edy Susanto"])
+                status = st.selectbox("Status", ["Diambil Sendiri","Orang Lain"])
 
-                    petugas = st.selectbox("Petugas", [
-                        "Ikinta Winanto", "Gatot Edy Susanto"
-                    ])
-
-                    status = st.selectbox("Status Berkas", [
-                        "Diambil Sendiri", "Orang Lain"
-                    ])
-
-                    waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                    save_data({
-                        "Nama": nama,
-                        "NIM": nim,
-                        "Prodi": prodi,
-                        "Pelayanan": pelayanan,
-                        "Petugas": petugas,
-                        "Status": status,
-                        "Waktu": waktu
-                    })
-
-                    # 🔥 TAMPIL SUPER CLEAN
-                    st.markdown(f"""
-                    <div style="
-                        font-size:40px;
-                        font-weight:bold;
-                        color:#00FFAA;
-                        text-align:center;
-                        margin-top:20px;
-                    ">
-                    ✔ {nama}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    break  # 🔥 STOP BIAR SEKALI SCAN SAJA
-
-        FRAME_WINDOW.image(frame, channels="BGR")
-
-    cap.release()
-
-# ====== UPLOAD QR ======
-elif menu == "Upload QR":
-    st.subheader("Upload QR Code")
-
-    file = st.file_uploader("Upload gambar QR")
-
-    if file:
-        img = Image.open(file)
-        decoded = decode(img)
-
-        for obj in decoded:
-            data = obj.data.decode("utf-8")
-            result = process_qr_data(data)
-
-            if result:
-                nama, nim, prodi, pelayanan = result
-
-                # 🔥 tampil nama saja
-                st.markdown(f"<h2>{nama}</h2>", unsafe_allow_html=True)
-
-                petugas = st.selectbox("Petugas", [
-                    "Ikinta Winanto", "Gatot Edy Susanto"
-                ])
-
-                status = st.selectbox("Status Berkas", [
-                    "Diambil Sendiri", "Orang Lain"
-                ])
-
-                waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                if st.button("Simpan Data"):
+                if st.button("Simpan"):
                     if not is_duplicate_today(nim, pelayanan):
                         save_data({
-                            "Nama": nama,
-                            "NIM": nim,
-                            "Prodi": prodi,
-                            "Pelayanan": pelayanan,
-                            "Petugas": petugas,
-                            "Status": status,
-                            "Waktu": waktu
+                            "Nama":nama,
+                            "NIM":nim,
+                            "Prodi":prodi,
+                            "Pelayanan":pelayanan,
+                            "Petugas":petugas,
+                            "Status":status,
+                            "Waktu":datetime.now()
                         })
-                        st.success("Data tersimpan!")
+                        st.success("Tersimpan!")
                     else:
-                        st.warning("Sudah pernah discan!")
+                        st.warning("Sudah pernah hari ini")
+        else:
+            st.error("QR tidak terbaca")
 
-# ====== DASHBOARD ======
+# ===== UPLOAD =====
+elif menu == "Upload QR":
+    file = st.file_uploader("Upload QR")
+    if file:
+        img = Image.open(file)
+        img_np = np.array(img)
+
+        detector = cv2.QRCodeDetector()
+        data,_,_ = detector.detectAndDecode(img_np)
+
+        if data:
+            st.success(data)
+        else:
+            st.error("QR tidak terbaca")
+
+# ===== DASHBOARD =====
 elif menu == "Dashboard":
-    st.subheader("📊 Dashboard")
-
     if not df.empty:
         df["Waktu"] = pd.to_datetime(df["Waktu"])
+        today = len(df[df["Waktu"].dt.date==datetime.now().date()])
+        month = len(df[df["Waktu"].dt.month==datetime.now().month])
+        year = len(df[df["Waktu"].dt.year==datetime.now().year])
 
-        today = df[df["Waktu"].dt.date == datetime.now().date()]
-        month = df[df["Waktu"].dt.month == datetime.now().month]
-        year = df[df["Waktu"].dt.year == datetime.now().year]
-
-        col1, col2, col3 = st.columns(3)
-
-        col1.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #22c55e, #16a34a);
-            padding:20px;
-            border-radius:15px;
-            text-align:center;
-            font-size:25px;
-            font-weight:bold;
-        ">
-        📅 Harian<br>{len(today)}
-        </div>
-        """, unsafe_allow_html=True)
-
-        col2.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-            padding:20px;
-            border-radius:15px;
-            text-align:center;
-            font-size:25px;
-            font-weight:bold;
-        ">
-        📆 Bulanan<br>{len(month)}
-        </div>
-        """, unsafe_allow_html=True)
-
-        col3.markdown(f"""
-        <div style="
-            background: linear-gradient(135deg, #f59e0b, #d97706);
-            padding:20px;
-            border-radius:15px;
-            text-align:center;
-            font-size:25px;
-            font-weight:bold;
-        ">
-        📊 Tahunan<br>{len(year)}
-        </div>
-        """, unsafe_allow_html=True)
-
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Harian",today)
+        c2.metric("Bulanan",month)
+        c3.metric("Tahunan",year)
     else:
         st.info("Belum ada data")
 
-# ====== DATA ======
+# ===== DATA =====
 elif menu == "Data":
-    st.subheader("📋 Data Scan (Filter & Search)")
-
     if not df.empty:
-
-        df["Waktu"] = pd.to_datetime(df["Waktu"])
-
-        # ===== FILTER =====
-        col1, col2, col3 = st.columns(3)
-
-        # 🔍 SEARCH
-        keyword = col1.text_input("🔍 Cari Nama / NIM")
-
-        #  FILTER TANGGAL
-        tanggal = col2.date_input(" Filter Tanggal", value=None)
-
-        #  FILTER BULAN
-        bulan = col3.selectbox(
-            " Filter Bulan",
-            ["Semua"] + sorted(df["Waktu"].dt.month.unique().tolist())
-        )
-
-        filtered = df.copy()
-
-        # ===== APPLY FILTER =====
-
-        # SEARCH
-        if keyword:
-            filtered = filtered[
-                filtered["Nama"].str.contains(keyword, case=False, na=False) |
-                filtered["NIM"].astype(str).str.contains(keyword)
-            ]
-
-        # FILTER TANGGAL
-        if tanggal:
-            filtered = filtered[
-                filtered["Waktu"].dt.date == tanggal
-            ]
-
-        # FILTER BULAN
-        if bulan != "Semua":
-            filtered = filtered[
-                filtered["Waktu"].dt.month == bulan
-            ]
-
-        # ===== SORT DESC =====
-        filtered = filtered.sort_values(by="Waktu", ascending=False)
-
-        # FORMAT WAKTU
-        filtered["Waktu"] = filtered["Waktu"].dt.strftime("%Y-%m-%d %H:%M:%S")
-
-        # ===== TAMPILKAN =====
-        st.dataframe(
-            filtered,
-            use_container_width=True,
-            height=500
-        )
-
-        # INFO JUMLAH DATA
-        st.info(f"Total data: {len(filtered)}")
-
+        df = df.sort_values(by="Waktu", ascending=False)
+        st.dataframe(df, use_container_width=True)
     else:
-        st.info("Belum ada data")
+        st.info("Kosong")
 
-# ====== PDF ======
+# ===== PDF =====
 elif menu == "Cetak PDF":
-    st.subheader("🖨 Cetak Laporan Bulanan")
-
     if not df.empty:
-
         df["Waktu"] = pd.to_datetime(df["Waktu"])
-
-        import calendar
-
-        # 🔥 PILIH BULAN
-        bulan_list = sorted(df["Waktu"].dt.month.unique())
-        bulan_pilih = st.selectbox("Pilih Bulan", bulan_list)
-
-        nama_bulan = calendar.month_name[bulan_pilih]
-
-        # FILTER DATA
-        filtered = df[df["Waktu"].dt.month == bulan_pilih]
-
-        st.write(f"Total data bulan {nama_bulan}: {len(filtered)}")
+        bulan = st.selectbox("Pilih Bulan", sorted(df["Waktu"].dt.month.unique()))
+        filtered = df[df["Waktu"].dt.month==bulan]
 
         if st.button("Generate PDF"):
-            
-            # 🔥 NAMA FILE DINAMIS
-            nama_file = f"laporan_{nama_bulan}.pdf"
-
-            generate_pdf(filtered, nama_bulan)
-
-            st.success(f"PDF berhasil dibuat: {nama_file}")
-
-            # 🔥 DOWNLOAD BUTTON
-            with open("laporan.pdf", "rb") as f:
-                st.download_button(
-                    label="⬇️ Download PDF",
-                    data=f,
-                    file_name=nama_file,
-                    mime="application/pdf"
-                )
-
-            st.info("File juga tersimpan di folder project")
-
-    else:
-        st.info("Belum ada data")
-elif menu == "View Cetak":
-    st.subheader("📄 Preview Laporan (View Cetak)")
-
-    if not df.empty:
-
-        df["Waktu"] = pd.to_datetime(df["Waktu"])
-
-        import calendar
-
-        # 🔥 PILIH BULAN
-        bulan_list = sorted(df["Waktu"].dt.month.unique())
-        bulan_pilih = st.selectbox("Pilih Bulan", bulan_list)
-
-        nama_bulan = calendar.month_name[bulan_pilih]
-
-        # FILTER DATA
-        filtered = df[df["Waktu"].dt.month == bulan_pilih]
-
-        # 🔥 SORT TERBARU DI ATAS
-        filtered = filtered.sort_values(by="Waktu", ascending=False)
-
-        st.markdown(f"## 📊 Laporan Bulan {nama_bulan}")
-        st.markdown(f"Total Data: **{len(filtered)}**")
-
-        # FORMAT WAKTU
-        filtered["Waktu"] = filtered["Waktu"].dt.strftime("%Y-%m-%d %H:%M:%S")
-
-        # 🔥 TAMPIL TABEL
-        st.dataframe(filtered, use_container_width=True, height=500)
-
-        # 🔥 TOMBOL CETAK LANGSUNG
-        if st.button("🖨 Cetak PDF"):
-            generate_pdf(filtered, nama_bulan)
-            st.success("PDF berhasil dibuat!")
-
-    else:
-        st.info("Belum ada data")        
+            generate_pdf(filtered, bulan)
+            with open("laporan.pdf","rb") as f:
+                st.download_button("Download PDF", f, "laporan.pdf")
