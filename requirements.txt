@@ -1,6 +1,4 @@
 streamlit
-opencv-python
-pyzbar
 pandas
 Pillow
 reportlab
