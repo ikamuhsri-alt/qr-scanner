@@ -149,85 +149,46 @@ if menu == "Scanner Camera":
             st.error("QR tidak terbaca")
 
 # ===== UPLOAD =====
+from pyzxing import BarCodeReader
+import tempfile
+
 elif menu == "Upload QR":
     st.subheader("Upload QR Code")
 
     file = st.file_uploader("Upload gambar QR", type=["png","jpg","jpeg"])
 
     if file:
-        image = Image.open(file)
-        img = np.array(image)
+        # simpan sementara file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            tmp.write(file.read())
+            temp_path = tmp.name
 
-        # Convert ke BGR
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+        reader = BarCodeReader()
+        result = reader.decode(temp_path)
 
-        detector = cv2.QRCodeDetector()
+        if result and result[0].get("parsed"):
+            data = result[0]["parsed"]
 
-        # ====== MULTI ATTEMPT (BIAR GA GAGAL) ======
-        decoded_data = None
+            st.write("DEBUG QR:", data)  # 🔥 buat cek isi QR
 
-        # 1. ORIGINAL
-        data, _, _ = detector.detectAndDecode(img)
-        if data:
-            decoded_data = data
+            hasil = process_qr_data(data)
 
-        # 2. GRAYSCALE
-        if not decoded_data:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            data, _, _ = detector.detectAndDecode(gray)
-            if data:
-                decoded_data = data
+            if hasil:
+                nama, nim, prodi, pelayanan = hasil
 
-        # 3. ENHANCED CONTRAST
-        if not decoded_data:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            gray = cv2.equalizeHist(gray)
-            data, _, _ = detector.detectAndDecode(gray)
-            if data:
-                decoded_data = data
-
-        # 4. THRESHOLD (ANTI BACKLIGHT)
-        if not decoded_data:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            thresh = cv2.adaptiveThreshold(
-                gray, 255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY,
-                11, 2
-            )
-            data, _, _ = detector.detectAndDecode(thresh)
-            if data:
-                decoded_data = data
-
-        # ====== HASIL ======
-        if decoded_data:
-            result = process_qr_data(decoded_data)
-
-            if result:
-                nama, nim, prodi, pelayanan = result
-
-                st.markdown(f"""
-                <div style="
-                    font-size:35px;
-                    font-weight:bold;
-                    color:#00FFAA;
-                    text-align:center;
-                ">
-                ✔ {nama}
-                </div>
-                """, unsafe_allow_html=True)
+                st.success(f"✔ {nama}")
 
                 petugas = st.selectbox("Petugas", [
                     "Ikinta Winanto", "Gatot Edy Susanto"
-                ], key="petugas_upload")
+                ])
 
                 status = st.selectbox("Status Berkas", [
                     "Diambil Sendiri", "Orang Lain"
-                ], key="status_upload")
+                ])
 
                 waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                if st.button("Simpan Data", key="btn_upload"):
+                if st.button("Simpan Data"):
                     if not is_duplicate_today(nim, pelayanan):
                         save_data({
                             "Nama": nama,
@@ -240,14 +201,13 @@ elif menu == "Upload QR":
                         })
                         st.success("Data tersimpan!")
                     else:
-                        st.warning("Sudah pernah discan hari ini!")
+                        st.warning("Sudah pernah discan!")
 
             else:
-                st.error("Format QR tidak sesuai (harus: Nama|NIM|Prodi|Pelayanan)")
+                st.error("Format QR tidak sesuai")
 
         else:
-            st.error("QR tidak terbaca 😢")
-            st.info("Tips: gunakan gambar jelas, tidak blur, tidak terlalu kecil")
+            st.error("QR tidak terbaca (ZXing juga gagal)")
 # ===== DASHBOARD =====
 elif menu == "Dashboard":
     if not df.empty:
