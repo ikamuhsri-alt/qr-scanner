@@ -150,19 +150,59 @@ if menu == "Scanner Camera":
 
 # ===== UPLOAD =====
 elif menu == "Upload QR":
-    file = st.file_uploader("Upload QR")
-    if file:
-        img = Image.open(file)
-        img_np = np.array(img)
+    st.subheader("Upload QR Code")
 
+    file = st.file_uploader("Upload gambar QR")
+
+    if file:
+        # 🔥 Convert ke OpenCV format
+        image = Image.open(file)
+        img = np.array(image)
+
+        # Convert RGB ke BGR (OpenCV)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+        # 🔥 DETECTOR
         detector = cv2.QRCodeDetector()
-        data,_,_ = detector.detectAndDecode(img_np)
+
+        data, bbox, _ = detector.detectAndDecode(img)
 
         if data:
-            st.success(data)
-        else:
-            st.error("QR tidak terbaca")
+            result = process_qr_data(data)
 
+            if result:
+                nama, nim, prodi, pelayanan = result
+
+                st.success(f"✔ {nama}")
+
+                petugas = st.selectbox("Petugas", [
+                    "Ikinta Winanto", "Gatot Edy Susanto"
+                ])
+
+                status = st.selectbox("Status Berkas", [
+                    "Diambil Sendiri", "Orang Lain"
+                ])
+
+                waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                if st.button("Simpan Data"):
+                    if not is_duplicate_today(nim, pelayanan):
+                        save_data({
+                            "Nama": nama,
+                            "NIM": nim,
+                            "Prodi": prodi,
+                            "Pelayanan": pelayanan,
+                            "Petugas": petugas,
+                            "Status": status,
+                            "Waktu": waktu
+                        })
+                        st.success("Data tersimpan!")
+                    else:
+                        st.warning("Sudah pernah discan!")
+            else:
+                st.error("Format QR tidak sesuai")
+        else:
+            st.error("QR tidak terbaca, coba foto lebih jelas")
 # ===== DASHBOARD =====
 elif menu == "Dashboard":
     if not df.empty:
