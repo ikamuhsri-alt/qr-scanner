@@ -6,6 +6,8 @@ from datetime import datetime
 from PIL import Image
 import re
 import base64
+import tempfile
+from pyzxing import BarCodeReader
 
 # ===== CONFIG =====
 st.set_page_config(page_title="QR Scanner Modern", layout="wide")
@@ -126,7 +128,7 @@ if menu == "Scanner Camera":
             if result:
                 nama, nim, prodi, pelayanan = result
 
-                st.markdown(f"<h2 style='text-align:center;color:#00ff99'>✔ {nama}</h2>", unsafe_allow_html=True)
+                st.success(f"✔ {nama}")
 
                 petugas = st.selectbox("Petugas", ["Ikinta Winanto","Gatot Edy Susanto"])
                 status = st.selectbox("Status", ["Diambil Sendiri","Orang Lain"])
@@ -148,17 +150,13 @@ if menu == "Scanner Camera":
         else:
             st.error("QR tidak terbaca")
 
-# ===== UPLOAD =====
-from pyzxing import BarCodeReader
-import tempfile
-
+# ===== UPLOAD QR =====
 elif menu == "Upload QR":
     st.subheader("Upload QR Code")
 
     file = st.file_uploader("Upload gambar QR", type=["png","jpg","jpeg"])
 
     if file:
-        # simpan sementara file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
             tmp.write(file.read())
             temp_path = tmp.name
@@ -169,8 +167,6 @@ elif menu == "Upload QR":
         if result and result[0].get("parsed"):
             data = result[0]["parsed"]
 
-            st.write("DEBUG QR:", data)  # 🔥 buat cek isi QR
-
             hasil = process_qr_data(data)
 
             if hasil:
@@ -178,48 +174,33 @@ elif menu == "Upload QR":
 
                 st.success(f"✔ {nama}")
 
-                petugas = st.selectbox("Petugas", [
-                    "Ikinta Winanto", "Gatot Edy Susanto"
-                ])
-
-                status = st.selectbox("Status Berkas", [
-                    "Diambil Sendiri", "Orang Lain"
-                ])
-
-                waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                petugas = st.selectbox("Petugas", ["Ikinta Winanto","Gatot Edy Susanto"])
+                status = st.selectbox("Status", ["Diambil Sendiri","Orang Lain"])
 
                 if st.button("Simpan Data"):
                     if not is_duplicate_today(nim, pelayanan):
                         save_data({
-                            "Nama": nama,
-                            "NIM": nim,
-                            "Prodi": prodi,
-                            "Pelayanan": pelayanan,
-                            "Petugas": petugas,
-                            "Status": status,
-                            "Waktu": waktu
+                            "Nama":nama,
+                            "NIM":nim,
+                            "Prodi":prodi,
+                            "Pelayanan":pelayanan,
+                            "Petugas":petugas,
+                            "Status":status,
+                            "Waktu":datetime.now()
                         })
                         st.success("Data tersimpan!")
                     else:
                         st.warning("Sudah pernah discan!")
-
             else:
                 st.error("Format QR tidak sesuai")
-
         else:
-            st.error("QR tidak terbaca (ZXing juga gagal)")
+            st.error("QR tidak terbaca")
+
 # ===== DASHBOARD =====
 elif menu == "Dashboard":
     if not df.empty:
         df["Waktu"] = pd.to_datetime(df["Waktu"])
-        today = len(df[df["Waktu"].dt.date==datetime.now().date()])
-        month = len(df[df["Waktu"].dt.month==datetime.now().month])
-        year = len(df[df["Waktu"].dt.year==datetime.now().year])
-
-        c1,c2,c3 = st.columns(3)
-        c1.metric("Harian",today)
-        c2.metric("Bulanan",month)
-        c3.metric("Tahunan",year)
+        st.metric("Total Data", len(df))
     else:
         st.info("Belum ada data")
 
@@ -242,3 +223,5 @@ elif menu == "Cetak PDF":
             generate_pdf(filtered, bulan)
             with open("laporan.pdf","rb") as f:
                 st.download_button("Download PDF", f, "laporan.pdf")
+    else:
+        st.info("Belum ada data")
