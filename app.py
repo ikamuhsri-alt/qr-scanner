@@ -6,11 +6,34 @@ from datetime import datetime
 from PIL import Image
 import re
 import base64
-import tempfile
-from pyzxing import BarCodeReader
 
 # ===== CONFIG =====
 st.set_page_config(page_title="QR Scanner Modern", layout="wide")
+
+# ===== LOGIN SYSTEM =====
+users = {
+    "admin": "123",
+    "petugas": "456"
+}
+
+if "login" not in st.session_state:
+    st.session_state.login = False
+
+if not st.session_state.login:
+    st.title("🔐 Login Sistem")
+
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        if username in users and users[username] == password:
+            st.session_state.login = True
+            st.success("Login berhasil!")
+            st.rerun()
+        else:
+            st.error("Username / Password salah")
+
+    st.stop()
 
 # ===== SIDEBAR =====
 def get_base64(file):
@@ -22,6 +45,12 @@ img = get_base64("bg_sidebar.png")
 st.sidebar.image("logo.png", width=100)
 st.sidebar.markdown("## 📌 Sistem Scanner QR")
 
+# 🔥 LOGOUT
+if st.sidebar.button("Logout"):
+    st.session_state.login = False
+    st.rerun()
+
+# 🔥 BACKGROUND SIDEBAR
 st.markdown(f"""
 <style>
 section[data-testid="stSidebar"] {{
@@ -51,6 +80,8 @@ def clean_text(text):
 def process_qr_data(data):
     try:
         p = data.split("|")
+        if len(p) < 4:
+            return None
         return clean_text(p[0]), clean_text(p[1]), clean_text(p[2]), clean_text(p[3])
     except:
         return None
@@ -103,7 +134,6 @@ st.title("📷 DATA SCAN PELAYANAN")
 
 menu = st.sidebar.selectbox("Menu", [
     "Scanner Camera",
-    "Upload QR",
     "Dashboard",
     "Data",
     "Cetak PDF"
@@ -119,8 +149,18 @@ if menu == "Scanner Camera":
         bytes_data = np.asarray(bytearray(img_file.read()), dtype=np.uint8)
         img = cv2.imdecode(bytes_data, 1)
 
+        # 🔥 PERBAIKI KONTRAS
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+
         detector = cv2.QRCodeDetector()
-        data, bbox, _ = detector.detectAndDecode(img)
+
+        data, _, _ = detector.detectAndDecode(img)
+
+        if not data:
+            data, _, _ = detector.detectAndDecode(gray)
+
+        st.write("DEBUG QR:", data)
 
         if data:
             result = process_qr_data(data)
@@ -147,75 +187,11 @@ if menu == "Scanner Camera":
                         st.success("Tersimpan!")
                     else:
                         st.warning("Sudah pernah hari ini")
+            else:
+                st.error("Format QR tidak sesuai")
         else:
             st.error("QR tidak terbaca")
 
-# ===== UPLOAD QR =====
-elif menu == "Upload QR":
-    st.subheader("Upload QR Code")
-
-    file = st.file_uploader("Upload gambar QR", type=["png","jpg","jpeg"])
-
-    if file:
-        image = Image.open(file)
-        img = np.array(image)
-
-        # convert ke BGR
-        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-
-        # ===== SCAN 1: OPENCV =====
-        detector = cv2.QRCodeDetector()
-        data, bbox, _ = detector.detectAndDecode(img)
-
-        # ===== SCAN 2: ZXING (backup) =====
-        if not data:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                cv2.imwrite(tmp.name, img)
-
-                reader = BarCodeReader()
-                result = reader.decode(tmp.name)
-
-                if result and result[0].get("parsed"):
-                    data = result[0]["parsed"]
-
-        # ===== DEBUG =====
-        st.write("DEBUG QR:", data)
-
-        if data:
-            hasil = process_qr_data(data)
-
-            if hasil:
-                nama, nim, prodi, pelayanan = hasil
-
-                st.success(f"✔ {nama}")
-
-                petugas = st.selectbox("Petugas", [
-                    "Ikinta Winanto", "Gatot Edy Susanto"
-                ])
-
-                status = st.selectbox("Status", [
-                    "Diambil Sendiri", "Orang Lain"
-                ])
-
-                if st.button("Simpan Data"):
-                    if not is_duplicate_today(nim, pelayanan):
-                        save_data({
-                            "Nama": nama,
-                            "NIM": nim,
-                            "Prodi": prodi,
-                            "Pelayanan": pelayanan,
-                            "Petugas": petugas,
-                            "Status": status,
-                            "Waktu": datetime.now()
-                        })
-                        st.success("Data tersimpan!")
-                    else:
-                        st.warning("Sudah pernah discan!")
-
-            else:
-                st.error("⚠ Format QR tidak sesuai")
-        else:
-            st.error("❌ QR tidak terbaca (semua metode gagal)")
 # ===== DASHBOARD =====
 elif menu == "Dashboard":
     if not df.empty:
