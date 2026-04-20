@@ -152,40 +152,82 @@ if menu == "Scanner Camera":
 elif menu == "Upload QR":
     st.subheader("Upload QR Code")
 
-    file = st.file_uploader("Upload gambar QR")
+    file = st.file_uploader("Upload gambar QR", type=["png","jpg","jpeg"])
 
     if file:
-        # 🔥 Convert ke OpenCV format
         image = Image.open(file)
         img = np.array(image)
 
-        # Convert RGB ke BGR (OpenCV)
+        # Convert ke BGR
         img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
-        # 🔥 DETECTOR
         detector = cv2.QRCodeDetector()
 
-        data, bbox, _ = detector.detectAndDecode(img)
+        # ====== MULTI ATTEMPT (BIAR GA GAGAL) ======
+        decoded_data = None
 
+        # 1. ORIGINAL
+        data, _, _ = detector.detectAndDecode(img)
         if data:
-            result = process_qr_data(data)
+            decoded_data = data
+
+        # 2. GRAYSCALE
+        if not decoded_data:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            data, _, _ = detector.detectAndDecode(gray)
+            if data:
+                decoded_data = data
+
+        # 3. ENHANCED CONTRAST
+        if not decoded_data:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            gray = cv2.equalizeHist(gray)
+            data, _, _ = detector.detectAndDecode(gray)
+            if data:
+                decoded_data = data
+
+        # 4. THRESHOLD (ANTI BACKLIGHT)
+        if not decoded_data:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            thresh = cv2.adaptiveThreshold(
+                gray, 255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                11, 2
+            )
+            data, _, _ = detector.detectAndDecode(thresh)
+            if data:
+                decoded_data = data
+
+        # ====== HASIL ======
+        if decoded_data:
+            result = process_qr_data(decoded_data)
 
             if result:
                 nama, nim, prodi, pelayanan = result
 
-                st.success(f"✔ {nama}")
+                st.markdown(f"""
+                <div style="
+                    font-size:35px;
+                    font-weight:bold;
+                    color:#00FFAA;
+                    text-align:center;
+                ">
+                ✔ {nama}
+                </div>
+                """, unsafe_allow_html=True)
 
                 petugas = st.selectbox("Petugas", [
                     "Ikinta Winanto", "Gatot Edy Susanto"
-                ])
+                ], key="petugas_upload")
 
                 status = st.selectbox("Status Berkas", [
                     "Diambil Sendiri", "Orang Lain"
-                ])
+                ], key="status_upload")
 
                 waktu = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                if st.button("Simpan Data"):
+                if st.button("Simpan Data", key="btn_upload"):
                     if not is_duplicate_today(nim, pelayanan):
                         save_data({
                             "Nama": nama,
@@ -198,11 +240,14 @@ elif menu == "Upload QR":
                         })
                         st.success("Data tersimpan!")
                     else:
-                        st.warning("Sudah pernah discan!")
+                        st.warning("Sudah pernah discan hari ini!")
+
             else:
-                st.error("Format QR tidak sesuai")
+                st.error("Format QR tidak sesuai (harus: Nama|NIM|Prodi|Pelayanan)")
+
         else:
-            st.error("QR tidak terbaca, coba foto lebih jelas")
+            st.error("QR tidak terbaca 😢")
+            st.info("Tips: gunakan gambar jelas, tidak blur, tidak terlalu kecil")
 # ===== DASHBOARD =====
 elif menu == "Dashboard":
     if not df.empty:
